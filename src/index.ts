@@ -47,6 +47,7 @@ import { ResultService } from "./services/resultService.js";
 import { NowPlayingService } from "./services/nowPlayingService.js";
 import { SongSubmissionValidator } from "./validators/songSubmissionValidator.js";
 import { acquireSingleInstanceLock } from "./utils/singleInstanceLock.js";
+import { startHealthServer, type BotHealthState } from "./services/healthServer.js";
 
 acquireSingleInstanceLock("./data/nexavision.pid");
 
@@ -107,7 +108,9 @@ const reminders = new ReminderService(
 );
 const results = new ResultService(client,configs,resultRepository,voteRepository,submissionRepository,countryAssignmentRepository);
 
-let startupState: "starting" | "ready" | "failed" = "starting";
+let startupState: BotHealthState = "starting";
+const webPort = Number(process.env.PORT ?? 8_000);
+const healthServer = startHealthServer(webPort, () => startupState);
 
 const songSubmissionHandler = createSongSubmissionHandler({
   configs,
@@ -268,12 +271,16 @@ client.once(Events.ClientReady, async (readyClient) => {
   } catch (error) {
     startupState = "failed";
     console.error("Bot başlatma işlemi tamamlanamadı:", error);
+    healthServer.close();
+    await client.destroy();
     process.exitCode = 1;
   }
 });
 
 client.on(Events.Error, (error) => console.error("Discord client hatası:", error));
 client.login(env.discordToken).catch((error) => {
+  startupState = "failed";
   console.error("Discord'a giriş yapılamadı:", error);
+  healthServer.close();
   process.exitCode = 1;
 });
