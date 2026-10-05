@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+data/
+coverage/
+*.log
+music/*.mp3
+!music/.gitkeep
