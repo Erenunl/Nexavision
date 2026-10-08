@@ -38,6 +38,7 @@ describe("slash command tanımları", () => {
       "oykontrol",
       "oysifirla",
       "sarkikilidi",
+      "şarkıkaldır",
       "sonuc",
       "sonucbaslat",
       "sonraki",

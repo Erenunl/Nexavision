@@ -82,4 +82,25 @@ describe("SubmissionRepository atomik durum değişimleri", () => {
     expect(repository.findById(first.id)).toMatchObject({ status: "APPROVED", locked: false });
     expect(repository.findById(replacement.id)?.status).toBe("PENDING");
   });
+
+  it("onaylanmış resmi şarkıyı geçmiş kaydını koruyarak kaldırır", () => {
+    const pending = repository.createPending(
+      "123456789012345678",
+      participant("444444444444444444", "SE"),
+      video("eeeeeeeeeee"),
+    );
+    expect(repository.approveIfPending(pending.id, "999999999999999999", 50)).toBe(true);
+
+    const removed = repository.removeApproved("123456789012345678", "SE", "888888888888888888");
+
+    expect(removed?.id).toBe(pending.id);
+    expect(repository.findApprovedByCountry("123456789012345678", "SE")).toBeNull();
+    expect(repository.findById(pending.id)).toMatchObject({
+      status: "REJECTED",
+      locked: false,
+      reviewedBy: "888888888888888888",
+      rejectionReason: "Resmi şarkı yönetici tarafından kaldırıldı.",
+    });
+    expect(repository.removeApproved("123456789012345678", "SE", "888888888888888888")).toBeNull();
+  });
 });

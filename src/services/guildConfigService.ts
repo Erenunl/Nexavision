@@ -255,7 +255,6 @@ export class GuildConfigService {
 
   describeMissing(config: GuildConfig): string[] {
     const labels: Array<[string | null, string]> = [
-      [config.channels.songSubmission, "Şarkı gönderim kanalı"],
       [config.channels.adminApproval, "Admin onay kanalı"],
       [config.channels.officialEntries, "Resmi şarkılar kanalı"],
       [config.channels.countryList, "Ülke listesi kanalı"],

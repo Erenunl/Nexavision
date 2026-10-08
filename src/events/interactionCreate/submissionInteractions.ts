@@ -153,6 +153,18 @@ export async function handleSubmissionInteraction(
       embeds: [buildSubmissionEmbed(approved)],
       components: [buildReviewButtons(approved.id, true)],
     });
+    try {
+      const user = await interaction.client.users.fetch(approved.discordUserId);
+      await user.send(
+        `✅ ${approved.countryFlag} ${approved.countryName} için gönderdiğin şarkı onaylandı ve yarışma şarkıları kanalında yayımlandı.`,
+      );
+    } catch {
+      // Kullanıcının DM'leri sonradan kapanmış olabilir; onay işlemi bundan etkilenmez.
+    }
+    await logs.info(
+      interaction.guildId,
+      `${interaction.user.tag}, ${approved.countryName} için #${approved.id} şarkı başvurusunu onayladı.`,
+    );
     await contestStatus.sync(interaction.guildId).catch((error) =>
       logs.error(interaction.guildId, "Şarkı onayı sonrası durum paneli güncellenemedi.", error),
     );
@@ -230,6 +242,10 @@ export async function handleSubmissionInteraction(
       // Kullanıcının DM'leri kapalı olabilir; ret işlemi bundan etkilenmez.
     }
 
+    await logs.info(
+      interaction.guildId,
+      `${interaction.user.tag}, ${rejected.countryName} için #${rejected.id} şarkı başvurusunu reddetti: ${reason}`,
+    );
     await interaction.editReply("✅ Başvuru reddedildi ve kayıt güncellendi.");
     await contestStatus.sync(interaction.guildId).catch((error) =>
       logs.error(interaction.guildId, "Şarkı reddi sonrası durum paneli güncellenemedi.", error),

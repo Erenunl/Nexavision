@@ -20,6 +20,7 @@ import type { ResultService } from "../../services/resultService.js";
 import type { CountryRoleService } from "../../services/countryRoleService.js";
 import type { CountryPanelService } from "../../services/countryPanelService.js";
 import type { CountryAssignmentStateService } from "../../services/countryAssignmentStateService.js";
+import type { OfficialEntryMessageRepository } from "../../database/officialEntryMessageRepository.js";
 
 interface Dependencies {
   authorization: AuthorizationService;
@@ -34,9 +35,10 @@ interface Dependencies {
   countryRoles: CountryRoleService;
   countryPanels: CountryPanelService;
   assignmentState: CountryAssignmentStateService;
+  officialMessages: OfficialEntryMessageRepository;
 }
 
-const ADMIN_COMMANDS = new Set(["hatirlat", "oylama", "oykontrol", "oysifirla", "sarkikilidi","sonuc","sonucbaslat","sonraki","sonucdur","sonucdevam","sonucbitir","ulke","temsilciçıkar"]);
+const ADMIN_COMMANDS = new Set(["hatirlat", "oylama", "oykontrol", "oysifirla", "sarkikilidi", "şarkıkaldır", "sonuc","sonucbaslat","sonraki","sonucdur","sonucdevam","sonucbitir","ulke","temsilciçıkar"]);
 
 async function authorized(interaction: Interaction, dependencies: Dependencies): Promise<boolean> {
   if (!interaction.inCachedGuild()) return false;
@@ -67,7 +69,7 @@ export async function handleContestAdminInteraction(
   const customId = "customId" in interaction ? interaction.customId : "";
   const relevant =
     (interaction.isChatInputCommand() && ADMIN_COMMANDS.has(interaction.commandName)) ||
-    (interaction.isAutocomplete() && (interaction.commandName === "sarkikilidi"||interaction.commandName==='ulke')) ||
+    (interaction.isAutocomplete() && (interaction.commandName === "sarkikilidi" || interaction.commandName === "şarkıkaldır" || interaction.commandName==='ulke')) ||
     (customId.startsWith("vote:reset") || customId.startsWith("result:finish") || customId.startsWith("country:manage"));
   if (!relevant) return false;
   if (!interaction.inCachedGuild()) return true;
@@ -313,6 +315,62 @@ export async function handleContestAdminInteraction(
 
   if (interaction.isButton() && customId === CUSTOM_IDS.voteResetCancel) {
     await interaction.update({ content: "Oy sıfırlama işlemi iptal edildi.", components: [] });
+    return true;
+  }
+
+  if (interaction.isChatInputCommand() && interaction.commandName === "şarkıkaldır") {
+    const rawCountry = interaction.options.getString("ulke", true);
+    const country = getCountry(rawCountry.toUpperCase()) ?? EUROVISION_COUNTRIES.find(
+      (item) => item.nameTr.toLocaleLowerCase("tr") === rawCountry.toLocaleLowerCase("tr"),
+    );
+    if (!country) {
+      await interaction.reply({ content: "Geçersiz ülke.", flags: MessageFlags.Ephemeral });
+      return true;
+    }
+
+    const submission = dependencies.submissions.findApprovedByCountry(interaction.guildId, country.code);
+    if (!submission) {
+      await interaction.reply({
+        content: `${country.flag} ${country.nameTr} için kaldırılabilecek onaylanmış resmi şarkı yok.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const reference = dependencies.officialMessages.get(interaction.guildId, country.code);
+    if (reference) {
+      try {
+        const channel = await interaction.client.channels.fetch(reference.channelId);
+        if (channel?.isTextBased() && "messages" in channel) {
+          const officialMessage = await channel.messages.fetch(reference.messageId).catch(() => null);
+          if (officialMessage) await officialMessage.delete();
+        }
+      } catch (error) {
+        await dependencies.logs.error(
+          interaction.guildId,
+          `${country.nameTr} resmi şarkı mesajı silinemedi; kayıt korunuyor.`,
+          error,
+        );
+        await interaction.editReply("Resmi şarkı mesajı silinemedi. Kanal izinlerini kontrol edip tekrar deneyin.");
+        return true;
+      }
+    }
+
+    const removed = dependencies.submissions.removeApproved(interaction.guildId, country.code, interaction.user.id);
+    if (!removed) {
+      await interaction.editReply("Resmi şarkı başka bir işlem tarafından değiştirilmiş; kaldırma yapılmadı.");
+      return true;
+    }
+    dependencies.officialMessages.delete(interaction.guildId, country.code);
+    await dependencies.status.sync(interaction.guildId).catch((error) =>
+      dependencies.logs.error(interaction.guildId, "Şarkı kaldırma sonrası durum paneli güncellenemedi.", error),
+    );
+    await dependencies.logs.info(
+      interaction.guildId,
+      `${interaction.user.tag}, ${country.nameTr} resmi şarkısını kaldırdı (#${submission.id}: ${submission.youtubeChannelName} — ${submission.songTitle}).`,
+    );
+    await interaction.editReply(`✅ ${country.flag} ${country.nameTr} resmi şarkısı kaldırıldı.`);
     return true;
   }
 

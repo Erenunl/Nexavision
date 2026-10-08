@@ -1,5 +1,5 @@
 import { ChannelType, type Message } from "discord.js";
-import { TEMPORARY_MESSAGE_TTL_MS } from "../../config/constants.js";
+import type { CountryAssignmentRepository } from "../../database/countryAssignmentRepository.js";
 import type { GuildConfigService } from "../../services/guildConfigService.js";
 import type { LogService } from "../../services/logService.js";
 import type { SubmissionService } from "../../services/submissionService.js";
@@ -7,54 +7,72 @@ import type { YouTubeService } from "../../services/youtubeService.js";
 import type { SubmissionRepository } from "../../database/submissionRepository.js";
 import type { ContestStatusService } from "../../services/contestStatusService.js";
 import { buildReviewButtons, buildSubmissionEmbed } from "../../embeds/submissionEmbed.js";
+import { formatNumber } from "../../utils/format.js";
 import { extractHttpUrls, parseYouTubeUrl } from "../../utils/youtubeUrl.js";
 
-async function temporaryReply(message: Message, content: string): Promise<void> {
+async function replyToDm(message: Message, content: string): Promise<void> {
   if (!message.channel.isSendable()) return;
-  const response = await message.channel.send({
-    content: `<@${message.author.id}> ${content}`,
-    allowedMentions: { users: [message.author.id] },
-  });
-  const timer = setTimeout(() => void response.delete().catch(() => undefined), TEMPORARY_MESSAGE_TTL_MS);
-  timer.unref();
+  await message.channel.send({ content, allowedMentions: { parse: [] } });
+}
+
+export function findDmSubmissionGuilds(
+  guildIds: Iterable<string>,
+  userId: string,
+  assignments: Pick<CountryAssignmentRepository, "findActiveByUser">,
+): string[] {
+  return [...guildIds].filter((guildId) => assignments.findActiveByUser(guildId, userId) !== null);
 }
 
 export function createSongSubmissionHandler(dependencies: {
   configs: GuildConfigService;
+  assignments: CountryAssignmentRepository;
   youtube: YouTubeService;
   submissions: SubmissionService;
   submissionRepository: SubmissionRepository;
   logs: LogService;
   contestStatus: ContestStatusService;
 }) {
-  const { configs, youtube, submissions, submissionRepository, logs, contestStatus } = dependencies;
+  const { configs, assignments, youtube, submissions, submissionRepository, logs, contestStatus } = dependencies;
 
   return async function handleSongSubmission(message: Message): Promise<void> {
-    if (!message.inGuild() || message.author.bot) return;
-    const config = configs.get(message.guildId);
-    if (!config.channels.songSubmission || message.channelId !== config.channels.songSubmission) return;
+    if (message.author.bot || message.inGuild() || message.channel.type !== ChannelType.DM) return;
 
-    void message.delete().catch((error) =>
-      logs.error(message.guildId, "Şarkı gönderim kanalındaki kullanıcı mesajı silinemedi.", error),
+    const matchingGuildIds = findDmSubmissionGuilds(
+      message.client.guilds.cache.keys(),
+      message.author.id,
+      assignments,
     );
+    if (matchingGuildIds.length === 0) {
+      await replyToDm(message, "Şarkı gönderebilmek için önce bir ülkede onaylanmış temsilci olmalısın.");
+      return;
+    }
+    if (matchingGuildIds.length > 1) {
+      await replyToDm(
+        message,
+        "Birden fazla sunucuda aktif temsilciliğin bulunduğu için başvurunun hangi yarışmaya ait olduğunu belirleyemedim. Lütfen bir yöneticiyle iletişime geç.",
+      );
+      return;
+    }
 
+    const guildId = matchingGuildIds[0]!;
+    const config = configs.get(guildId);
     if (config.deadlines.songSubmission && Math.floor(Date.now() / 1_000) >= config.deadlines.songSubmission) {
-      await temporaryReply(message, "Şarkı teslim süresi sona erdi.");
+      await replyToDm(message, "Şarkı teslim süresi sona erdi.");
       return;
     }
 
     if (!config.channels.adminApproval) {
-      await temporaryReply(message, "Admin onay kanalı henüz ayarlanmamış. Bir yönetici `/ayar` komutunu kullanmalı.");
+      await replyToDm(message, "Admin onay kanalı henüz ayarlanmamış. Lütfen bir yöneticiyle iletişime geç.");
       return;
     }
 
     const urls = extractHttpUrls(message.content);
     if (urls.length !== 1) {
-      await temporaryReply(
+      await replyToDm(
         message,
         urls.length > 1
           ? "Her başvuruda yalnızca bir YouTube video linki gönderebilirsin."
-          : "Bu kanal yalnızca şarkı başvuruları için kullanılabilir. Geçerli bir YouTube video linki gönder.",
+          : "Şarkı başvurusu için bana tek bir `youtube.com/watch?v=...` veya `youtu.be/...` video linki gönder.",
       );
       return;
     }
@@ -67,39 +85,39 @@ export function createSongSubmissionHandler(dependencies: {
           : parsed.reason === "invalid_video_id"
             ? "YouTube video ID'si geçersiz."
             : "Yalnızca `youtube.com/watch?v=...` veya `youtu.be/...` video linkleri kabul edilir.";
-      await temporaryReply(message, reason);
+      await replyToDm(message, reason);
       return;
     }
 
-    const participantValidation = submissions.validateParticipant(message.guildId, message.author.id);
+    const participantValidation = submissions.validateParticipant(guildId, message.author.id);
     if (!participantValidation.ok) {
-      await temporaryReply(message, participantValidation.message);
+      await replyToDm(message, participantValidation.message);
       return;
     }
 
-    if (submissionRepository.hasApprovedVideo(message.guildId, parsed.videoId)) {
-      await temporaryReply(message, "Bu video daha önce yarışmada kullanılmış.");
+    if (submissionRepository.hasApprovedVideo(guildId, parsed.videoId)) {
+      await replyToDm(message, "Bu video daha önce yarışmada kullanılmış.");
       return;
     }
 
     const lookup = await youtube.getVideo(parsed.videoId);
     if (!lookup.ok) {
       if (lookup.kind === "temporary") {
-        await logs.error(message.guildId, `YouTube videosu kontrol edilemedi: ${parsed.videoId}`, lookup.error);
-        await temporaryReply(message, "Video şu anda kontrol edilemedi. Lütfen biraz sonra tekrar dene.");
+        await logs.error(guildId, `YouTube videosu kontrol edilemedi: ${parsed.videoId}`, lookup.error);
+        await replyToDm(message, "Video şu anda kontrol edilemedi. Lütfen biraz sonra tekrar dene.");
       } else {
-        await temporaryReply(message, "Video bulunamadı, gizli veya erişilebilir değil.");
+        await replyToDm(message, "Video bulunamadı, gizli veya erişilebilir değil.");
       }
       return;
     }
 
     const videoValidation = submissions.validateVideo(
-      message.guildId,
+      guildId,
       lookup.video,
       config.songRules.maxViewCount,
     );
     if (!videoValidation.ok) {
-      await temporaryReply(message, videoValidation.message);
+      await replyToDm(message, videoValidation.message);
       return;
     }
 
@@ -107,18 +125,18 @@ export function createSongSubmissionHandler(dependencies: {
     if (
       !approvalChannel ||
       approvalChannel.type !== ChannelType.GuildText ||
-      approvalChannel.guildId !== message.guildId
+      approvalChannel.guildId !== guildId
     ) {
-      await temporaryReply(message, "Kayıtlı admin onay kanalı artık mevcut değil. Bir yönetici `/ayar` komutunu kullanmalı.");
+      await replyToDm(message, "Kayıtlı admin onay kanalı artık mevcut değil. Lütfen bir yöneticiyle iletişime geç.");
       return;
     }
 
     let submission;
     try {
-      submission = submissions.createPending(message.guildId, participantValidation.value, lookup.video);
+      submission = submissions.createPending(guildId, participantValidation.value, lookup.video);
     } catch (error) {
-      await logs.error(message.guildId, "Başvuru database'e kaydedilemedi.", error);
-      await temporaryReply(message, "Başvurun kaydedilemedi. Bekleyen başka bir başvurun olmadığını kontrol edip tekrar dene.");
+      await logs.error(guildId, "DM şarkı başvurusu database'e kaydedilemedi.", error);
+      await replyToDm(message, "Başvurun kaydedilemedi. Bekleyen başka bir başvurun olmadığını kontrol edip tekrar dene.");
       return;
     }
 
@@ -130,8 +148,8 @@ export function createSongSubmissionHandler(dependencies: {
       });
     } catch (error) {
       submissions.markDispatchFailed(submission.id);
-      await logs.error(message.guildId, `#${submission.id} başvurusunun admin mesajı gönderilemedi.`, error);
-      await temporaryReply(message, "Başvuru onay kanalına iletilemedi. Lütfen daha sonra tekrar dene.");
+      await logs.error(guildId, `#${submission.id} DM başvurusunun admin mesajı gönderilemedi.`, error);
+      await replyToDm(message, "Başvuru onay kanalına iletilemedi. Lütfen daha sonra tekrar dene.");
       return;
     }
 
@@ -140,14 +158,21 @@ export function createSongSubmissionHandler(dependencies: {
     } catch (error) {
       await adminMessage.delete().catch(() => undefined);
       submissions.markDispatchFailed(submission.id);
-      await logs.error(message.guildId, `#${submission.id} admin mesajı database'e bağlanamadı.`, error);
-      await temporaryReply(message, "Başvurun kalıcı olarak kaydedilemedi. Lütfen daha sonra tekrar dene.");
+      await logs.error(guildId, `#${submission.id} admin mesajı database'e bağlanamadı.`, error);
+      await replyToDm(message, "Başvurun kalıcı olarak kaydedilemedi. Lütfen daha sonra tekrar dene.");
       return;
     }
 
-    await temporaryReply(message, "Başvurun otomatik kontrolleri geçti ve yönetici onayına gönderildi.");
-    await contestStatus.sync(message.guildId).catch((error) =>
-      logs.error(message.guildId, "Yeni şarkı başvurusu sonrası durum paneli güncellenemedi.", error),
+    await replyToDm(
+      message,
+      `✅ Şarkın bot kontrolünü geçti (${formatNumber(lookup.video.viewCount)} görüntülenme) ve yönetici onayına gönderildi. Sonuç yine DM üzerinden bildirilecek.`,
+    );
+    await logs.info(
+      guildId,
+      `${message.author.tag}, ${participantValidation.value.countryName} için DM üzerinden #${submission.id} şarkı başvurusu yaptı.`,
+    );
+    await contestStatus.sync(guildId).catch((error) =>
+      logs.error(guildId, "Yeni DM şarkı başvurusu sonrası durum paneli güncellenemedi.", error),
     );
   };
 }

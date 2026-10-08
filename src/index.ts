@@ -60,6 +60,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
   ],
@@ -116,6 +117,7 @@ const healthServer = startHealthServer(webPort, () => startupState);
 
 const songSubmissionHandler = createSongSubmissionHandler({
   configs,
+  assignments: countryAssignmentRepository,
   youtube,
   submissions: submissionService,
   submissionRepository,
@@ -206,6 +208,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         countryRoles,
         countryPanels,
         assignmentState: countryAssignmentState,
+        officialMessages: officialEntryMessages,
       })
     ) return;
     if (await handleSongChangeInteraction(interaction,{requests:songChangeRequests,officialMessages:officialEntryMessages,assignments:countryAssignmentRepository,submissions:submissionRepository,configs,submissionService,youtube,authorization,status:contestStatus,logs})) return;

@@ -231,6 +231,20 @@ export class SubmissionRepository {
     return result.changes === 1 ? this.findApprovedByCountry(guildId, countryCode) : null;
   }
 
+  removeApproved(guildId: string, countryCode: string, reviewerId: string): SongSubmission | null {
+    const current = this.findApprovedByCountry(guildId, countryCode);
+    if (!current) return null;
+    const result = getDatabase()
+      .prepare(
+        `UPDATE song_submissions
+         SET status = 'REJECTED', locked = 0, reviewed_at = ?, reviewed_by = ?,
+             rejection_reason = 'Resmi şarkı yönetici tarafından kaldırıldı.'
+         WHERE id = ? AND status = 'APPROVED'`,
+      )
+      .run(new Date().toISOString(), reviewerId, current.id);
+    return result.changes === 1 ? current : null;
+  }
+
   rejectIfPending(id: number, reviewerId: string, reason: string): boolean {
     const reviewedAt = new Date().toISOString();
     const result = getDatabase()
