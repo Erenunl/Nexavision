@@ -46,6 +46,7 @@ describe("slash command tanımları", () => {
       "sonucbitir",
       "ulke",
       "sarkidegistir",
+      "temsilciçıkar",
     ]);
   });
 });

@@ -66,6 +66,17 @@ export const countryManageCommand = new SlashCommandBuilder().setName('ulke').se
  .addSubcommand(s=>s.setName('basvurukapat').setDescription('Ülke başvurularını kapatır'));
 export const songChangeCommand = new SlashCommandBuilder().setName('sarkidegistir').setDescription('Kilitli resmi şarkı için değişiklik talebi oluşturur').setDMPermission(false).addStringOption(o=>o.setName('youtube_url').setDescription('Yeni YouTube video URLsi').setRequired(true));
 
+export const representativeRemoveCommand = new SlashCommandBuilder()
+  .setName("temsilciçıkar")
+  .setDescription("Bir kullanıcının aktif ülke temsilciliğini kaldırır")
+  .setDMPermission(false)
+  .addUserOption((option) =>
+    option
+      .setName("kullanici")
+      .setDescription("Temsilcilikten çıkarılacak kullanıcı")
+      .setRequired(true),
+  );
+
 export const contestCommands = [
   reminderCommand,
   votingToggleCommand,
@@ -73,5 +84,5 @@ export const contestCommands = [
   voteControlCommand,
   voteResetCommand,
   songLockCommand,
-  resultCommand,resultStartCommand,resultNextCommand,resultPauseCommand,resultResumeCommand,resultFinishCommand,countryManageCommand,songChangeCommand,
+  resultCommand,resultStartCommand,resultNextCommand,resultPauseCommand,resultResumeCommand,resultFinishCommand,countryManageCommand,songChangeCommand,representativeRemoveCommand,
 ] as const;

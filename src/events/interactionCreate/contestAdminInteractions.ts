@@ -34,7 +34,7 @@ interface Dependencies {
   countryPanels: CountryPanelService;
 }
 
-const ADMIN_COMMANDS = new Set(["hatirlat", "oylama", "oykontrol", "oysifirla", "sarkikilidi","sonuc","sonucbaslat","sonraki","sonucdur","sonucdevam","sonucbitir","ulke"]);
+const ADMIN_COMMANDS = new Set(["hatirlat", "oylama", "oykontrol", "oysifirla", "sarkikilidi","sonuc","sonucbaslat","sonraki","sonucdur","sonucdevam","sonucbitir","ulke","temsilciçıkar"]);
 
 async function authorized(interaction: Interaction, dependencies: Dependencies): Promise<boolean> {
   if (!interaction.inCachedGuild()) return false;
@@ -87,6 +87,35 @@ export async function handleContestAdminInteraction(
         .slice(0, 25)
         .map((country) => ({ name: `${country.flag} ${country.nameTr}`, value: country.code })),
     );
+    return true;
+  }
+
+  if (interaction.isChatInputCommand() && interaction.commandName === "temsilciçıkar") {
+    const user = interaction.options.getUser("kullanici", true);
+    const assignment = dependencies.assignments.findActiveByUser(interaction.guildId, user.id);
+    if (!assignment) {
+      await interaction.reply({
+        content: `<@${user.id}> kullanıcısının aktif bir ülke temsilciliği bulunmuyor.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+    const country = getCountry(assignment.countryCode);
+    const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${CUSTOM_IDS.countryRemovePrefix}${assignment.countryCode}`)
+        .setLabel("Evet, Temsilcilikten Çıkar")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId(CUSTOM_IDS.countryRemoveCancel)
+        .setLabel("Vazgeç")
+        .setStyle(ButtonStyle.Secondary),
+    );
+    await interaction.reply({
+      content: `${country?.flag ?? "🌍"} ${country?.nameTr ?? assignment.countryCode} temsilcisi <@${user.id}> çıkarılsın mı? Ülke rolü de kaldırılacak.`,
+      components: [buttons],
+      flags: MessageFlags.Ephemeral,
+    });
     return true;
   }
 
