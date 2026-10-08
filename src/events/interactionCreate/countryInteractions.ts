@@ -20,6 +20,7 @@ import type { CountryRoleService } from "../../services/countryRoleService.js";
 import type { GuildConfigService } from "../../services/guildConfigService.js";
 import type { LogService } from "../../services/logService.js";
 import type { ContestStatusService } from "../../services/contestStatusService.js";
+import type { CountryAssignmentStateService } from "../../services/countryAssignmentStateService.js";
 
 const approvalLocks = new Set<number>();
 
@@ -76,9 +77,10 @@ export async function handleCountryInteraction(
     panels: CountryPanelService;
     logs: LogService;
     contestStatus: ContestStatusService;
+    assignmentState: CountryAssignmentStateService;
   },
 ): Promise<boolean> {
-  const { configs, authorization, applications, roles, panels, logs, contestStatus } = dependencies;
+  const { configs, authorization, applications, roles, panels, logs, contestStatus, assignmentState } = dependencies;
   const customId = "customId" in interaction ? interaction.customId : "";
   const isCountryInteraction =
     customId.startsWith(CUSTOM_IDS.countryApplyPrefix) ||
@@ -245,6 +247,20 @@ export async function handleCountryInteraction(
           flags: MessageFlags.Ephemeral,
         });
         return true;
+      }
+
+      try {
+        await assignmentState.sync(interaction.guildId);
+      } catch (error) {
+        await logs.error(
+          interaction.guildId,
+          `#${application.id} assignment kalıcı data kanalına yazılamadı.`,
+          error,
+        );
+        await interaction.followUp({
+          content: "Temsilcilik oluşturuldu ancak kalıcı yedek kaydedilemedi. Bot yeniden başlatılmadan önce işlemi tekrar deneyin veya logları kontrol edin.",
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
       const approved = applications.findById(application.id)!;

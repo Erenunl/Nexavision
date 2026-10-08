@@ -48,6 +48,7 @@ import { NowPlayingService } from "./services/nowPlayingService.js";
 import { SongSubmissionValidator } from "./validators/songSubmissionValidator.js";
 import { acquireSingleInstanceLock } from "./utils/singleInstanceLock.js";
 import { startHealthServer, type BotHealthState } from "./services/healthServer.js";
+import { CountryAssignmentStateService } from "./services/countryAssignmentStateService.js";
 
 acquireSingleInstanceLock("./data/nexavision.pid");
 
@@ -81,6 +82,7 @@ const authorization = new AuthorizationService(configs);
 const logs = new LogService(client, configs);
 const countryRoles = new CountryRoleService(configs);
 const countryPanels = new CountryPanelService(client, configs, countryAssignmentRepository);
+const countryAssignmentState = new CountryAssignmentStateService(client, countryAssignmentRepository);
 const announcements = new AnnouncementService();
 const nowPlaying = new NowPlayingService(client, configs);
 const stageMusic = new StageMusicService(logs, nowPlaying);
@@ -172,6 +174,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         panels: countryPanels,
         logs,
         contestStatus,
+        assignmentState: countryAssignmentState,
       })
     ) return;
     if (
@@ -202,6 +205,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         results,
         countryRoles,
         countryPanels,
+        assignmentState: countryAssignmentState,
       })
     ) return;
     if (await handleSongChangeInteraction(interaction,{requests:songChangeRequests,officialMessages:officialEntryMessages,assignments:countryAssignmentRepository,submissions:submissionRepository,configs,submissionService,youtube,authorization,status:contestStatus,logs})) return;
@@ -237,6 +241,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 client.once(Events.ClientReady, async (readyClient) => {
   try {
     await configs.initialize(readyClient);
+    await countryAssignmentState.initialize();
     startupState = "ready";
 
     const commandPayloads = [

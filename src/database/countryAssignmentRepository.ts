@@ -53,6 +53,37 @@ export class CountryAssignmentRepository {
     return rows.map(fromRow);
   }
 
+  replaceActiveSnapshot(
+    guildId: string,
+    assignments: Array<{ countryCode: string; discordUserId: string }>,
+    restoredBy: string,
+  ): boolean {
+    const current = this.listActive(guildId)
+      .map(({ countryCode, discordUserId }) => `${countryCode}:${discordUserId}`)
+      .sort();
+    const incoming = assignments
+      .map(({ countryCode, discordUserId }) => `${countryCode}:${discordUserId}`)
+      .sort();
+    if (current.length === incoming.length && current.every((value, index) => value === incoming[index])) {
+      return false;
+    }
+
+    const database = getDatabase();
+    database.transaction(() => {
+      database.prepare("UPDATE country_assignments SET active = 0 WHERE guild_id = ? AND active = 1").run(guildId);
+      const insert = database.prepare(
+        `INSERT INTO country_assignments
+           (guild_id, country_code, discord_user_id, assigned_at, approved_by, active)
+         VALUES (?, ?, ?, ?, ?, 1)`,
+      );
+      const restoredAt = new Date().toISOString();
+      for (const assignment of assignments) {
+        insert.run(guildId, assignment.countryCode, assignment.discordUserId, restoredAt, restoredBy);
+      }
+    }).immediate();
+    return true;
+  }
+
   findActiveParticipant(guildId: string, discordUserId: string): AssignedParticipant | null {
     const assignment = this.findActiveByUser(guildId, discordUserId);
     if (!assignment) return null;

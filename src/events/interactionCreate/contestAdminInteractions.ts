@@ -19,6 +19,7 @@ import type { ReminderService } from "../../services/reminderService.js";
 import type { ResultService } from "../../services/resultService.js";
 import type { CountryRoleService } from "../../services/countryRoleService.js";
 import type { CountryPanelService } from "../../services/countryPanelService.js";
+import type { CountryAssignmentStateService } from "../../services/countryAssignmentStateService.js";
 
 interface Dependencies {
   authorization: AuthorizationService;
@@ -32,6 +33,7 @@ interface Dependencies {
   results: ResultService;
   countryRoles: CountryRoleService;
   countryPanels: CountryPanelService;
+  assignmentState: CountryAssignmentStateService;
 }
 
 const ADMIN_COMMANDS = new Set(["hatirlat", "oylama", "oykontrol", "oysifirla", "sarkikilidi","sonuc","sonucbaslat","sonraki","sonucdur","sonucdevam","sonucbitir","ulke","temsilciçıkar"]);
@@ -132,9 +134,79 @@ export async function handleContestAdminInteraction(
     if(sub==='basvuruac'||sub==='basvurukapat'){const open=sub==='basvuruac';await dependencies.configs.setCountryApplicationsOpen(interaction.guildId,open);await dependencies.countryPanels.syncCountryApplicationPanel(interaction.guildId);await dependencies.logs.info(interaction.guildId,`${interaction.user.tag} ülke başvurularını ${open?'açtı':'kapattı'}.`);await interaction.reply({content:open?'✅ Ülke başvuruları açıldı.':'⛔ Ülke başvuruları kapatıldı.',flags:MessageFlags.Ephemeral});return true;}
     const code=interaction.options.getString('ulke',true).toUpperCase();const country=getCountry(code);if(!country){await interaction.reply({content:'Geçersiz ülke.',flags:MessageFlags.Ephemeral});return true;}
     if(sub==='temsilcikaldir'){const current=dependencies.assignments.findActiveByCountry(interaction.guildId,code);if(!current){await interaction.reply({content:'Bu ülkenin aktif temsilcisi yok.',flags:MessageFlags.Ephemeral});return true;}const row=new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`${CUSTOM_IDS.countryRemovePrefix}${code}`).setLabel('Evet, Kaldır').setStyle(ButtonStyle.Danger),new ButtonBuilder().setCustomId(CUSTOM_IDS.countryRemoveCancel).setLabel('Vazgeç').setStyle(ButtonStyle.Secondary));await interaction.reply({content:`${country.flag} ${country.nameTr} temsilcisi <@${current.discordUserId}> kaldırılsın mı?`,components:[row],flags:MessageFlags.Ephemeral});return true;}
-    const user=interaction.options.getUser('kullanici',true);await interaction.deferReply({flags:MessageFlags.Ephemeral});const conflict=dependencies.assignments.findActiveByUser(interaction.guildId,user.id);if(conflict&&conflict.countryCode!==code){await interaction.editReply('Yeni kullanıcı zaten başka bir ülkeyi temsil ediyor.');return true;}let granted;let replaced;try{granted=await dependencies.countryRoles.grantCountryRole(interaction.guild,user.id,code);replaced=dependencies.assignments.replaceCountry(interaction.guildId,code,user.id,interaction.user.id);}catch(e){if(granted?.roleAdded)await dependencies.countryRoles.removeCountryRole(granted.member,granted.role).catch(()=>undefined);await interaction.editReply('Yeni rol/assignment tamamlanamadı; eski temsilci korundu.');return true;}const old=replaced.old;if(old&&old.discordUserId!==user.id){const member=await interaction.guild.members.fetch(old.discordUserId).catch(()=>null);const role=await dependencies.countryRoles.getCountryRole(interaction.guild,code);if(member&&role)await dependencies.countryRoles.removeCountryRole(member,role).catch(e=>dependencies.logs.error(interaction.guildId,'Eski ülke rolü kaldırılamadı.',e));}await dependencies.countryPanels.syncAll(interaction.guildId);await dependencies.status.sync(interaction.guildId);await dependencies.logs.info(interaction.guildId,`${interaction.user.tag}, ${country.nameTr} temsilcisini <@${user.id}> olarak değiştirdi.`);await interaction.editReply('✅ Temsilci değiştirildi.');return true;
+    const user = interaction.options.getUser('kullanici', true);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const conflict = dependencies.assignments.findActiveByUser(interaction.guildId, user.id);
+    if (conflict && conflict.countryCode !== code) {
+      await interaction.editReply('Yeni kullanıcı zaten başka bir ülkeyi temsil ediyor.');
+      return true;
+    }
+    let granted;
+    let replaced;
+    try {
+      granted = await dependencies.countryRoles.grantCountryRole(interaction.guild, user.id, code);
+      replaced = dependencies.assignments.replaceCountry(interaction.guildId, code, user.id, interaction.user.id);
+    } catch (error) {
+      if (granted?.roleAdded) {
+        await dependencies.countryRoles.removeCountryRole(granted.member, granted.role).catch(() => undefined);
+      }
+      await interaction.editReply('Yeni rol/assignment tamamlanamadı; eski temsilci korundu.');
+      return true;
+    }
+    const old = replaced.old;
+    if (old && old.discordUserId !== user.id) {
+      const member = await interaction.guild.members.fetch(old.discordUserId).catch(() => null);
+      const role = await dependencies.countryRoles.getCountryRole(interaction.guild, code);
+      if (member && role) {
+        await dependencies.countryRoles.removeCountryRole(member, role).catch((error) =>
+          dependencies.logs.error(interaction.guildId, 'Eski ülke rolü kaldırılamadı.', error),
+        );
+      }
+    }
+    let persistenceWarning = '';
+    try {
+      await dependencies.assignmentState.sync(interaction.guildId);
+    } catch (error) {
+      persistenceWarning = ' Ancak kalıcı temsilci yedeği güncellenemedi; logları kontrol edin.';
+      await dependencies.logs.error(interaction.guildId, 'Temsilci değişikliği kalıcı data kanalına yazılamadı.', error);
+    }
+    await dependencies.countryPanels.syncAll(interaction.guildId);
+    await dependencies.status.sync(interaction.guildId);
+    await dependencies.logs.info(interaction.guildId, `${interaction.user.tag}, ${country.nameTr} temsilcisini <@${user.id}> olarak değiştirdi.`);
+    await interaction.editReply(`✅ Temsilci değiştirildi.${persistenceWarning}`);
+    return true;
   }
-  if(interaction.isButton()&&customId.startsWith(CUSTOM_IDS.countryRemovePrefix)){const code=customId.slice(CUSTOM_IDS.countryRemovePrefix.length);const current=dependencies.assignments.findActiveByCountry(interaction.guildId,code);if(!current){await interaction.update({content:'Aktif temsilci bulunamadı.',components:[]});return true;}const role=await dependencies.countryRoles.getCountryRole(interaction.guild,code);const member=await interaction.guild.members.fetch(current.discordUserId).catch(()=>null);if(member&&role)await dependencies.countryRoles.removeCountryRole(member,role);const removed=dependencies.assignments.deactivateCountry(interaction.guildId,code);await dependencies.countryPanels.syncAll(interaction.guildId);await dependencies.status.sync(interaction.guildId);if(removed)await dependencies.logs.info(interaction.guildId,`${interaction.user.tag}, ${getCountry(code)?.nameTr??code} temsilcisini kaldırdı.`);await interaction.update({content:removed?'✅ Temsilci kaldırıldı.':'Assignment değişmiş; işlem yapılmadı.',components:[]});return true;}
+  if (interaction.isButton() && customId.startsWith(CUSTOM_IDS.countryRemovePrefix)) {
+    const code = customId.slice(CUSTOM_IDS.countryRemovePrefix.length);
+    const current = dependencies.assignments.findActiveByCountry(interaction.guildId, code);
+    if (!current) {
+      await interaction.update({ content: 'Aktif temsilci bulunamadı.', components: [] });
+      return true;
+    }
+    const role = await dependencies.countryRoles.getCountryRole(interaction.guild, code);
+    const member = await interaction.guild.members.fetch(current.discordUserId).catch(() => null);
+    if (member && role) await dependencies.countryRoles.removeCountryRole(member, role);
+    const removed = dependencies.assignments.deactivateCountry(interaction.guildId, code);
+    let persistenceWarning = '';
+    if (removed) {
+      try {
+        await dependencies.assignmentState.sync(interaction.guildId);
+      } catch (error) {
+        persistenceWarning = ' Ancak kalıcı temsilci yedeği güncellenemedi; logları kontrol edin.';
+        await dependencies.logs.error(interaction.guildId, 'Temsilci silme işlemi kalıcı data kanalına yazılamadı.', error);
+      }
+    }
+    await dependencies.countryPanels.syncAll(interaction.guildId);
+    await dependencies.status.sync(interaction.guildId);
+    if (removed) {
+      await dependencies.logs.info(interaction.guildId, `${interaction.user.tag}, ${getCountry(code)?.nameTr ?? code} temsilcisini kaldırdı.`);
+    }
+    await interaction.update({
+      content: removed ? `✅ Temsilci kaldırıldı.${persistenceWarning}` : 'Assignment değişmiş; işlem yapılmadı.',
+      components: [],
+    });
+    return true;
+  }
   if(interaction.isButton()&&customId===CUSTOM_IDS.countryRemoveCancel){await interaction.update({content:'İşlem iptal edildi.',components:[]});return true;}
 
   if (interaction.isChatInputCommand() && interaction.commandName === "hatirlat") {
