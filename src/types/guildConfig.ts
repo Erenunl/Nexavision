@@ -1,6 +1,6 @@
 export interface GuildConfig {
   type: "guild_config";
-  version: 4;
+  version: 5;
   guildId: string;
   channels: {
     songSubmission: string | null;
@@ -14,6 +14,7 @@ export interface GuildConfig {
     results: string | null;
     scoreboard: string | null;
     nowPlaying: string | null;
+    dmInbox: string | null;
   };
   roles: {
     admin: string | null;

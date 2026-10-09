@@ -10,7 +10,7 @@ import { EUROVISION_COUNTRIES } from "../config/countries.js";
 import type { ConfigChannelKey, ConfigMessageKey, GuildConfig } from "../types/guildConfig.js";
 
 const SNOWFLAKE = /^\d{17,20}$/;
-const CHANNEL_KEYS = ["songSubmission","adminApproval","officialEntries","logs","countryList","countryApplication","stage","contestStatus","results","scoreboard","nowPlaying"] as const;
+const CHANNEL_KEYS = ["songSubmission","adminApproval","officialEntries","logs","countryList","countryApplication","stage","contestStatus","results","scoreboard","nowPlaying","dmInbox"] as const;
 const MESSAGE_KEYS = ["countryList","countryApplication","contestStatus","scoreboard","nowPlaying"] as const;
 
 function nullableSnowflake(value: unknown): string | null {
@@ -39,6 +39,7 @@ export function defaultGuildConfig(guildId: string): GuildConfig {
       results: null,
       scoreboard: null,
       nowPlaying: null,
+      dmInbox: null,
     },
     roles: { admin: null, winner: null },
     songRules: { maxViewCount: DEFAULT_MAX_VIEW_COUNT },
@@ -107,6 +108,7 @@ export function validateGuildConfig(value: unknown, guildId: string): GuildConfi
       results: nullableSnowflake(channels.results),
       scoreboard: nullableSnowflake(channels.scoreboard),
       nowPlaying: nullableSnowflake(channels.nowPlaying),
+      dmInbox: nullableSnowflake(channels.dmInbox),
     },
     roles: { admin: nullableSnowflake(roles.admin), winner: nullableSnowflake(roles.winner) },
     songRules: {

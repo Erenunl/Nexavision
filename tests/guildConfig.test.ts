@@ -39,8 +39,25 @@ describe("validateGuildConfig", () => {
       },
       guildId,
     );
-    expect(config?.version).toBe(4);
+    expect(config?.version).toBe(5);
     expect(config?.channels.adminApproval).toBe("234567890123456789");
+  });
+
+  it("eski array config sırasını bozmadan DM gelen kutusunu boş başlatır", () => {
+    const ids = Array.from({ length: 11 }, (_, index) => String(2_000_000_000_000_000_000n + BigInt(index)));
+    const config = validateGuildConfig(
+      {
+        type: "guild_config",
+        version: 4,
+        guildId,
+        channels: ids,
+      },
+      guildId,
+    );
+
+    expect(config?.channels.nowPlaying).toBe(ids[10]);
+    expect(config?.channels.dmInbox).toBeNull();
+    expect(config?.version).toBe(5);
   });
 
   it("50 ülke rolüyle tek Discord mesajı sınırına sığar", () => {
@@ -64,6 +81,7 @@ describe("validateGuildConfig", () => {
       results: guildId,
       scoreboard: guildId,
       nowPlaying: guildId,
+      dmInbox: guildId,
     };
     config.roles.admin = guildId;
     config.roles.winner = guildId;

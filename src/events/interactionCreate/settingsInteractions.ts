@@ -39,6 +39,7 @@ const CHANNEL_LABELS: Record<ConfigChannelKey, string> = {
   results: "Sonuç Kanalı",
   scoreboard: "Scoreboard Kanalı",
   nowPlaying: "Şimdi Çalıyor Kanalı",
+  dmInbox: "DM Gelen Kutusu Kanalı",
 };
 
 function mainPanel() {
@@ -123,6 +124,7 @@ function currentSettingsEmbed(guild: Guild, configs: GuildConfigService): EmbedB
           `Sonuç: ${channelValue(config.channels.results)}`,
           `Scoreboard: ${channelValue(config.channels.scoreboard)}`,
           `Şimdi Çalıyor: ${channelValue(config.channels.nowPlaying)}`,
+          `DM Gelen Kutusu: ${channelValue(config.channels.dmInbox)}`,
         ].join("\n"),
       },
       { name: "Yetkiler", value: `Admin Rolü: ${roleValue(config.roles.admin)}\nKazanan Rolü: ${roleValue(config.roles.winner)}` },

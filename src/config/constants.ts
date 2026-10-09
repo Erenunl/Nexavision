@@ -1,6 +1,6 @@
 export const DATA_CHANNEL_ID = "1556686336109314148";
 export const CONFIG_MESSAGE_PREFIX = "FSC_CONFIG:";
-export const CONFIG_VERSION = 4;
+export const CONFIG_VERSION = 5;
 export const DEFAULT_MAX_VIEW_COUNT = 300_000;
 export const TEMPORARY_MESSAGE_TTL_MS = 12_000;
 

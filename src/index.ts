@@ -49,6 +49,7 @@ import { SongSubmissionValidator } from "./validators/songSubmissionValidator.js
 import { acquireSingleInstanceLock } from "./utils/singleInstanceLock.js";
 import { startHealthServer, type BotHealthState } from "./services/healthServer.js";
 import { CountryAssignmentStateService } from "./services/countryAssignmentStateService.js";
+import { DmInboxService } from "./services/dmInboxService.js";
 
 acquireSingleInstanceLock("./data/nexavision.pid");
 
@@ -81,6 +82,7 @@ const submissionService = new SubmissionService(submissionRepository, validator)
 const youtube = new YouTubeService(env.youtubeApiKey);
 const authorization = new AuthorizationService(configs);
 const logs = new LogService(client, configs);
+const dmInbox = new DmInboxService(client, configs, logs);
 const countryRoles = new CountryRoleService(configs);
 const countryPanels = new CountryPanelService(client, configs, countryAssignmentRepository);
 const countryAssignmentState = new CountryAssignmentStateService(client, countryAssignmentRepository);
@@ -127,6 +129,9 @@ const songSubmissionHandler = createSongSubmissionHandler({
 
 client.on(Events.MessageCreate, async (message) => {
   if (startupState !== "ready") return;
+  await dmInbox.forward(message).catch((error) =>
+    console.error("DM gelen kutusuna iletilirken beklenmeyen hata oluştu:", error),
+  );
   await songSubmissionHandler(message);
 });
 
