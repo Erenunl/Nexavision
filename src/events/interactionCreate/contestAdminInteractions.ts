@@ -6,6 +6,7 @@ import {
   EmbedBuilder,
   MessageFlags,
   type Interaction,
+  type Message,
 } from "discord.js";
 import { EUROVISION_COUNTRIES, getCountry } from "../../config/countries.js";
 import { CUSTOM_IDS } from "../../config/constants.js";
@@ -65,6 +66,47 @@ function lineFields(name: string, lines: string[], empty: string): Array<{ name:
 
 function isMissingDiscordResource(error: unknown): boolean {
   return error instanceof DiscordAPIError && (error.code === 10_003 || error.code === 10_008);
+}
+
+export function isOfficialEntryEmbedTitle(title: string | null | undefined): boolean {
+  return typeof title === "string" && /(?:’|')NİN RESMİ ŞARKISI SEÇİLDİ!$/u.test(title);
+}
+
+async function findOfficialEntryChannelMessages(
+  interaction: Interaction,
+  dependencies: Dependencies,
+): Promise<Message[]> {
+  if (!interaction.inCachedGuild()) return [];
+  const channelId = dependencies.configs.get(interaction.guildId).channels.officialEntries;
+  if (!channelId) throw new Error("Resmi şarkılar kanalı ayarlanmamış.");
+  const channel = await interaction.client.channels.fetch(channelId);
+  if (
+    !channel ||
+    !channel.isTextBased() ||
+    !("messages" in channel) ||
+    !("guildId" in channel) ||
+    channel.guildId !== interaction.guildId
+  ) {
+    throw new Error("Resmi şarkılar kanalı bulunamadı veya metin kanalı değil.");
+  }
+
+  const matches: Message[] = [];
+  let before: string | undefined;
+  while (true) {
+    const page = await channel.messages.fetch({ limit: 100, before });
+    if (page.size === 0) break;
+    for (const message of page.values()) {
+      if (
+        message.author.id === interaction.client.user.id &&
+        message.embeds.some((embed) => isOfficialEntryEmbedTitle(embed.title))
+      ) {
+        matches.push(message);
+      }
+    }
+    before = page.last()?.id;
+    if (page.size < 100 || !before) break;
+  }
+  return matches;
 }
 
 async function deleteOfficialEntryMessage(
@@ -355,28 +397,33 @@ export async function handleContestAdminInteraction(
   }
 
   if (interaction.isChatInputCommand() && interaction.commandName === "tümşarkılarıkaldır") {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const approved = dependencies.submissions.listApproved(interaction.guildId);
-    if (approved.length === 0) {
-      await interaction.reply({
-        content: "Kaldırılabilecek onaylanmış resmi şarkı bulunmuyor.",
-        flags: MessageFlags.Ephemeral,
-      });
+    let channelMessages: Message[];
+    try {
+      channelMessages = await findOfficialEntryChannelMessages(interaction, dependencies);
+    } catch (error) {
+      await dependencies.logs.error(interaction.guildId, "Resmi şarkılar kanalı toplu kaldırma için taranamadı.", error);
+      await interaction.editReply("Resmi şarkılar kanalı taranamadı. Kanal ayarını ve bot izinlerini kontrol edin.");
+      return true;
+    }
+    if (approved.length === 0 && channelMessages.length === 0) {
+      await interaction.editReply("Kaldırılabilecek onaylanmış resmi şarkı bulunmuyor.");
       return true;
     }
     const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder()
         .setCustomId(CUSTOM_IDS.allSongsRemoveConfirm)
-        .setLabel(`Evet, ${approved.length} Şarkıyı Kaldır`)
+        .setLabel("Evet, Tümünü Kaldır")
         .setStyle(ButtonStyle.Danger),
       new ButtonBuilder()
         .setCustomId(CUSTOM_IDS.allSongsRemoveCancel)
         .setLabel("Vazgeç")
         .setStyle(ButtonStyle.Secondary),
     );
-    await interaction.reply({
-      content: `⚠️ **${approved.length} onaylanmış resmi şarkının tamamı** yarışma şarkıları kanalından kaldırılacak. Başvuru geçmişi ve loglar korunacak. Devam edilsin mi?`,
+    await interaction.editReply({
+      content: `⚠️ Resmi şarkılar kanalında **${channelMessages.length} şarkı mesajı**, aktif veritabanında **${approved.length} şarkı kaydı** bulundu. Tamamı kaldırılacak; başvuru geçmişi ve loglar korunacak. Devam edilsin mi?`,
       components: [buttons],
-      flags: MessageFlags.Ephemeral,
     });
     return true;
   }
@@ -389,30 +436,44 @@ export async function handleContestAdminInteraction(
   if (interaction.isButton() && customId === CUSTOM_IDS.allSongsRemoveConfirm) {
     await interaction.deferUpdate();
     const approved = dependencies.submissions.listApproved(interaction.guildId);
-    let removedCount = 0;
-    const failedCountries: string[] = [];
+    let channelMessages: Message[] = [];
+    try {
+      channelMessages = await findOfficialEntryChannelMessages(interaction, dependencies);
+    } catch (error) {
+      await dependencies.logs.error(interaction.guildId, "Resmi şarkılar kanalı toplu kaldırma sırasında taranamadı.", error);
+      await interaction.editReply({
+        content: "Resmi şarkılar kanalı taranamadı; hiçbir kayıt değiştirilmedi.",
+        components: [],
+      });
+      return true;
+    }
 
-    for (const submission of approved) {
+    let deletedMessageCount = 0;
+    const failedMessageIds: string[] = [];
+    for (const message of channelMessages) {
       try {
-        await deleteOfficialEntryMessage(interaction, dependencies, submission.countryCode);
-        const removed = dependencies.submissions.removeApproved(
-          interaction.guildId,
-          submission.countryCode,
-          interaction.user.id,
-        );
-        if (!removed) {
-          failedCountries.push(`${submission.countryFlag} ${submission.countryName}`);
-          continue;
-        }
-        dependencies.officialMessages.delete(interaction.guildId, submission.countryCode);
-        removedCount += 1;
+        await message.delete();
+        deletedMessageCount += 1;
       } catch (error) {
-        failedCountries.push(`${submission.countryFlag} ${submission.countryName}`);
+        failedMessageIds.push(message.id);
         await dependencies.logs.error(
           interaction.guildId,
-          `${submission.countryName} resmi şarkısı toplu kaldırma sırasında silinemedi; kayıt korundu.`,
+          `Resmi şarkı kanal mesajı silinemedi (${message.id}).`,
           error,
         );
+      }
+    }
+
+    let removedRecordCount = 0;
+    for (const submission of approved) {
+      const removed = dependencies.submissions.removeApproved(
+        interaction.guildId,
+        submission.countryCode,
+        interaction.user.id,
+      );
+      if (removed) {
+        dependencies.officialMessages.delete(interaction.guildId, submission.countryCode);
+        removedRecordCount += 1;
       }
     }
 
@@ -421,14 +482,14 @@ export async function handleContestAdminInteraction(
     );
     await dependencies.logs.info(
       interaction.guildId,
-      `${interaction.user.tag}, toplu şarkı kaldırma işlemini çalıştırdı: ${removedCount} kaldırıldı, ${failedCountries.length} başarısız.`,
+      `${interaction.user.tag}, toplu şarkı kaldırma işlemini çalıştırdı: ${deletedMessageCount} kanal mesajı ve ${removedRecordCount} aktif kayıt kaldırıldı; ${failedMessageIds.length} mesaj silinemedi.`,
     );
 
-    const failureDetail = failedCountries.length > 0
-      ? `\n⚠️ Kaldırılamayanlar: ${failedCountries.join(", ")}`
+    const failureDetail = failedMessageIds.length > 0
+      ? `\n⚠️ ${failedMessageIds.length} kanal mesajı silinemedi. Ayrıntılar log kanalına yazıldı; komutu tekrar çalıştırabilirsiniz.`
       : "";
     await interaction.editReply({
-      content: `✅ ${removedCount} resmi şarkı kaldırıldı.${failureDetail}`,
+      content: `✅ ${deletedMessageCount} resmi şarkı kanal mesajı ve ${removedRecordCount} aktif şarkı kaydı kaldırıldı.${failureDetail}`,
       components: [],
     });
     return true;
