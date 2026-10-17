@@ -39,6 +39,7 @@ describe("slash command tanımları", () => {
       "oysifirla",
       "sarkikilidi",
       "şarkıkaldır",
+      "tümşarkılarıkaldır",
       "sonuc",
       "sonucbaslat",
       "sonraki",

@@ -35,4 +35,6 @@ export const CUSTOM_IDS = {
   songChangeApprovePrefix: "song-change:approve:",
   songChangeRejectPrefix: "song-change:reject:",
   songChangeRejectModalPrefix: "song-change:reject-modal:",
+  allSongsRemoveConfirm: "song:remove-all:confirm",
+  allSongsRemoveCancel: "song:remove-all:cancel",
 } as const;

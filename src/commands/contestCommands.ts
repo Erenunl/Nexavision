@@ -61,6 +61,11 @@ export const songRemoveCommand = new SlashCommandBuilder()
     option.setName("ulke").setDescription("Ülke adı veya kodu").setRequired(true).setAutocomplete(true),
   );
 
+export const allSongsRemoveCommand = new SlashCommandBuilder()
+  .setName("tümşarkılarıkaldır")
+  .setDescription("Tüm onaylanmış resmi şarkıları kaldırır")
+  .setDMPermission(false);
+
 export const resultCommand = new SlashCommandBuilder().setName('sonuc').setDescription('Sonuç snapshot işlemleri').setDMPermission(false).addSubcommand(s=>s.setName('hazirla').setDescription('Gizli ve immutable sonuç snapshotı hazırlar'));
 export const resultStartCommand = new SlashCommandBuilder().setName('sonucbaslat').setDescription('Hazırlanmış sonuç gecesini başlatır').setDMPermission(false);
 export const resultNextCommand = new SlashCommandBuilder().setName('sonraki').setDescription('Sıradaki ülkenin oylarını açıklar').setDMPermission(false);
@@ -93,5 +98,6 @@ export const contestCommands = [
   voteResetCommand,
   songLockCommand,
   songRemoveCommand,
+  allSongsRemoveCommand,
   resultCommand,resultStartCommand,resultNextCommand,resultPauseCommand,resultResumeCommand,resultFinishCommand,countryManageCommand,songChangeCommand,representativeRemoveCommand,
 ] as const;
